@@ -6,27 +6,27 @@ import android.content.Intent
 import android.nfc.*
 import android.nfc.tech.Ndef
 import android.nfc.tech.NdefFormatable
+import android.nfc.tech.NfcV
 import android.os.Build
 import android.os.Handler
+import android.os.Looper
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
-import java.nio.charset.Charset
-import android.os.Looper
 import java.io.IOException
+import java.nio.charset.Charset
 
 const val PERMISSION_NFC = 1007
 
-class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventChannel.StreamHandler, NfcAdapter.ReaderCallback {
+class FlutterNfcReaderPlugin(val registrar: Registrar) : MethodCallHandler, EventChannel.StreamHandler, NfcAdapter.ReaderCallback {
 
     private val activity = registrar.activity()
 
     private var nfcAdapter: NfcAdapter? = null
     private var nfcManager: NfcManager? = null
-
 
     private var kId = "nfcId"
     private var kContent = "nfcContent"
@@ -39,7 +39,7 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
     private var tag: Tag? = null
     private var eventChannel: EventChannel.EventSink? = null
 
-    private var nfcFlags = NfcAdapter.FLAG_READER_NFC_A or
+    private var READER_FLAGS = NfcAdapter.FLAG_READER_NFC_A or
             NfcAdapter.FLAG_READER_NFC_B or
             NfcAdapter.FLAG_READER_NFC_BARCODE or
             NfcAdapter.FLAG_READER_NFC_F or
@@ -58,18 +58,18 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
     }
 
     init {
-        if (activity != null) {
-            nfcManager = activity.getSystemService(Context.NFC_SERVICE) as? NfcManager
-            nfcAdapter = nfcManager?.defaultAdapter
+        nfcManager = activity.getSystemService(Context.NFC_SERVICE) as? NfcManager
+        nfcAdapter = nfcManager?.defaultAdapter
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                activity.requestPermissions(
-                        arrayOf(Manifest.permission.NFC),
-                        PERMISSION_NFC
-                )
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            activity.requestPermissions(
+                    arrayOf(Manifest.permission.NFC),
+                    PERMISSION_NFC
+            )
+        }
 
-            startNFCReader()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            nfcAdapter?.enableReaderMode(activity, this, READER_FLAGS, null)
         }
     }
 
@@ -81,16 +81,16 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
             nDefTag?.let {
                 it.connect()
                 if (it.maxSize < nfcMessage.toByteArray().size) {
-                    //Message to large to write to NFC tag
+                    // Message to large to write to NFC tag
                     return false
                 }
                 return if (it.isWritable) {
                     it.writeNdefMessage(nfcMessage)
                     it.close()
-                    //Message is written to tag
+                    // Message is written to tag
                     true
                 } else {
-                    //NFC tag is read-only
+                    // NFC tag is read-only
                     false
                 }
             }
@@ -102,18 +102,17 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
                     it.connect()
                     it.format(nfcMessage)
                     it.close()
-                    //The data is written to the tag
+                    // The data is written to the tag
                     true
                 } catch (e: IOException) {
-                    //Failed to format tag
+                    // Failed to format tag
                     false
                 }
             }
-            //NDEF is not supported
+            // NDEF is not supported
             return false
-
         } catch (e: Exception) {
-            //Write operation has failed
+            // Write operation has failed
         }
         return false
     }
@@ -130,16 +129,13 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
         return false
     }
 
-
     override fun onMethodCall(call: MethodCall, result: Result) {
-
-        if (call.method == "NfcEnableReaderMode") {
-            startNFCReader()
-        } else if (call.method == "NfcDisableReaderMode") {
-            stopNFCReader()
+        if (call.method == "NfcAvailable") {
+            result.success(nfcAdapter?.isEnabled == true)
+            return
         }
 
-        if (nfcAdapter?.isEnabled != true && call.method != "NfcAvailable") {
+        if (nfcAdapter?.isEnabled != true) {
             result.error("404", "NFC Hardware not found", null)
             return
         }
@@ -162,13 +158,7 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
                     writeTag()
                 }
             }
-            "NfcAvailable" -> {
-                when {
-                    nfcAdapter == null -> result.success("not_supported")
-                    nfcAdapter!!.isEnabled -> result.success("available")
-                    else -> result.success("disabled")
-                }
-            }
+
             else -> {
                 result.notImplemented()
             }
@@ -184,20 +174,11 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
         eventChannel = null
     }
 
-
-    private fun startNFCReader() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            nfcAdapter?.enableReaderMode(activity, this, nfcFlags, null)
-        }
-    }
-
-
-    private fun stopNFCReader() {
+    private fun stopNFC() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             nfcAdapter?.disableReaderMode(activity)
         }
     }
-
 
     private fun writeTag() {
         if (writeResult != null) {
@@ -213,7 +194,6 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
         }
     }
 
-
     private fun readTag() {
         if (readResult != null) {
             // convert tag to NDEF tag
@@ -222,7 +202,7 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
             val ndefMessage = ndef?.ndefMessage ?: ndef?.cachedNdefMessage
             val message = ndefMessage?.toByteArray()
                     ?.toString(Charset.forName("UTF-8")) ?: ""
-            //val id = tag?.id?.toString(Charset.forName("ISO-8859-1")) ?: ""
+            // val id = tag?.id?.toString(Charset.forName("ISO-8859-1")) ?: ""
             val id = bytesToHexString(tag?.id) ?: ""
             ndef?.close()
             val data = mapOf(kId to id, kContent to message, kError to "", kStatus to "reading")
@@ -232,15 +212,20 @@ class FlutterNfcReaderPlugin(registrar: Registrar) : MethodCallHandler, EventCha
                 readResult = null
             }
         } else {
-            // convert tag to NDEF tag
-            val ndef = Ndef.get(tag)
-            ndef?.connect()
-            val ndefMessage = ndef?.ndefMessage ?: ndef?.cachedNdefMessage
-            val message = ndefMessage?.toByteArray()
-                    ?.toString(Charset.forName("UTF-8")) ?: ""
-            //val id = tag?.id?.toString(Charset.forName("ISO-8859-1")) ?: ""
+            val nfcV = NfcV.get(tag)
+            nfcV.connect()
+            var message = ""
+            for (i in 0..7) {
+                val cmd = byteArrayOf(0x20, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, i.toByte())
+                val tagUid = tag?.id
+                System.arraycopy(tagUid, 0, cmd, 2, 8)
+                val response = nfcV.transceive(cmd)
+                val rawMessage = response?.toString(Charset.forName("UTF-8")) ?: ""
+                val re = Regex("[^A-Za-z0-9.]")
+                message += re.replace(rawMessage, "")
+            }
             val id = bytesToHexString(tag?.id) ?: ""
-            ndef?.close()
+            nfcV.close()
             val data = mapOf(kId to id, kContent to message, kError to "", kStatus to "reading")
             val mainHandler = Handler(Looper.getMainLooper())
             mainHandler.post {

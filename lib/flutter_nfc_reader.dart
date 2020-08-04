@@ -59,20 +59,6 @@ class FlutterNfcReader {
   static const stream =
       const EventChannel('it.matteocrippa.flutternfcreader.flutter_nfc_reader');
 
-  static Future<NfcData> enableReaderMode() async {
-    final Map data = await _channel.invokeMethod('NfcEnableReaderMode');
-    final NfcData result = NfcData.fromMap(data);
-
-    return result;
-  }
-
-  static Future<NfcData> disableReaderMode() async {
-    final Map data = await _channel.invokeMethod('NfcDisableReaderMode');
-    final NfcData result = NfcData.fromMap(data);
-
-    return result;
-  }
-
   static Future<NfcData> stop() async {
     final Map data = await _channel.invokeMethod('NfcStop');
     final NfcData result = NfcData.fromMap(data);
@@ -80,25 +66,24 @@ class FlutterNfcReader {
     return result;
   }
 
-  static Future<NfcData> read({String instruction}) async {
-    final Map data = await _callRead(instruction: instruction);
+  static Future<NfcData> read() async {
+    final Map data = await _channel.invokeMethod('NfcRead');
     final NfcData result = NfcData.fromMap(data);
+
     return result;
   }
 
-  static Stream<NfcData> onTagDiscovered({String instruction}) {
+  static Future<bool> isAvailable() async {
+    return await _channel.invokeMethod('NfcAvailable');
+  }
+
+  static Stream<NfcData> onTagDiscovered() {
     if (Platform.isIOS) {
-      _callRead(instruction: instruction);
+      _channel.invokeMethod('NfcRead');
     }
     return stream.receiveBroadcastStream().map((rawNfcData) {
       return NfcData.fromMap(rawNfcData);
     });
-  }
-
-  static Future<Map> _callRead({instruction: String}) async {
-      return await _channel.invokeMethod('NfcRead', <String, dynamic> {
-        "instruction": instruction
-      });
   }
 
   static Future<NfcData> write(String path, String label) async {
@@ -109,12 +94,4 @@ class FlutterNfcReader {
 
     return result;
   }
-  static Future<NFCAvailability> checkNFCAvailability() async {
-    var availability = "NFCAvailability.${await _channel.invokeMethod<String>("NfcAvailable")}";
-    return NFCAvailability.values.firstWhere((item) => item.toString() == availability);
-  }
-}
-
-enum NFCAvailability {
-  available, disabled, not_supported
 }
